@@ -1,0 +1,10 @@
+ADMIN_USER=admin
+ADMIN_PASS=jixels123@
+ADMIN_EMAIL=adminjixels@gmail.com
+MASTER_TOKEN=replace-with-a-long-random-master-registration-secret
+QR_SIGNING_SECRET=replace-with-a-long-random-qr-signing-secret
+PUBLIC_BASE_URL=https://your-vercel-app.vercel.app
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+RESEND_API_KEY=
+RESET_FROM_EMAIL=Jixels ID Cards <onboarding@resend.dev>
