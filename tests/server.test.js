@@ -87,6 +87,30 @@ test('local QR endpoint returns SVG without external service dependency', async 
   }
 });
 
+test('public pages and master link are served for deployment routes', async () => {
+  const server = createServer();
+  const baseUrl = await listen(server);
+  try {
+    for (const path of ['/', '/admin', '/scanner']) {
+      const response = await fetch(`${baseUrl}${path}`);
+      const body = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type') || '', /text\/html/);
+      assert.match(body, /Jixels/i);
+    }
+
+    const masterResponse = await fetch(`${baseUrl}/api/master-link`);
+    const master = await masterResponse.json();
+
+    assert.equal(masterResponse.status, 200);
+    assert.match(master.url, /\?master=/);
+    assert.match(master.url, /#apply$/);
+  } finally {
+    await close(server);
+  }
+});
+
 test('backup rejects legacy GET requests', async () => {
   const server = createServer();
   const baseUrl = await listen(server);

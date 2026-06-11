@@ -1681,12 +1681,15 @@ const app = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (await handleApi(req, res, url)) return;
 
-  const requested = url.pathname === '/'
-    ? '/index.html'
-    : (url.pathname === '/admin' ? '/admin.html' : (url.pathname === '/scanner' ? '/scanner.html' : url.pathname));
-  const filePath = path.join(root, path.normalize(requested));
+  const routes = {
+    '/': 'index.html',
+    '/admin': 'admin.html',
+    '/scanner': 'scanner.html'
+  };
+  const requested = routes[url.pathname] || decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+  const filePath = path.resolve(root, requested);
 
-  if (!filePath.startsWith(root)) {
+  if (!filePath.startsWith(root + path.sep) && filePath !== root) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
