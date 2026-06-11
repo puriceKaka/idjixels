@@ -144,7 +144,7 @@ test('master link opens the registration form without showing the master card', 
 test('pages use the Jixels logo as the favicon', () => {
   for (const file of ['index.html', 'admin.html', 'scanner.html']) {
     const html = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-    assert.match(html, /rel="icon"[^>]+jixels-logo-form-ni-tenje-cropped\.jpeg/);
+    assert.match(html, /rel="icon"[^>]+favicon\.svg\?v=2/);
   }
 });
 
