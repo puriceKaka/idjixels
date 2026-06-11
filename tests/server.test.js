@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const { test } = require('node:test');
 
 process.env.QR_SIGNING_SECRET = 'test-signing-secret';
@@ -122,6 +123,16 @@ test('public pages and master link are served for deployment routes', async () =
   } finally {
     await close(server);
   }
+});
+
+test('master link keeps the master card visible before the form', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+  assert.doesNotMatch(
+    html,
+    /\.registration-only \.topbar,\s*\.registration-only \.cards-row,\s*\.registration-only \.records/
+  );
+  assert.match(html, /else if \(hasMasterAccess\) \{[\s\S]*showMaster\(\);/);
 });
 
 test('backup rejects legacy GET requests', async () => {
