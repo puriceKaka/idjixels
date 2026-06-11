@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { test } = require('node:test');
 
 process.env.QR_SIGNING_SECRET = 'test-signing-secret';
@@ -26,6 +27,18 @@ function close(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
+}
+
+function snapshotFile(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+}
+
+function restoreFile(file, snapshot) {
+  if (snapshot === null) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+  fs.writeFileSync(file, snapshot);
 }
 
 test('signed QR payloads resolve to the original verification token', () => {
@@ -152,6 +165,49 @@ test('backup requires the current admin password', async () => {
     assert.match(body.error, /current admin password/i);
   } finally {
     await close(server);
+  }
+});
+
+test('master registration accepts a large photo payload', async () => {
+  const trackedFiles = ['cards-db.json', 'audit-log.json', 'master-config.json'];
+  const snapshots = Object.fromEntries(trackedFiles.map((file) => [file, snapshotFile(file)]));
+  const server = createServer();
+  const baseUrl = await listen(server);
+  try {
+    const masterResponse = await fetch(`${baseUrl}/api/master-link`);
+    const master = await masterResponse.json();
+
+    assert.equal(masterResponse.status, 200);
+
+    const masterUrl = new URL(master.url);
+    const masterToken = masterUrl.searchParams.get('master');
+    assert.ok(masterToken, 'Master token should be present in the master link URL.');
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const response = await fetch(`${baseUrl}/api/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        masterToken,
+        name: `Test Worker ${suffix}`,
+        location: 'Nairobi',
+        branch: 'HQ',
+        nationalId: `NID-${suffix}`,
+        phone: `070${String(Date.now()).slice(-7)}`,
+        email: `worker-${suffix}@example.com`,
+        position: 'Staff',
+        photo: `data:image/png;base64,${'A'.repeat(9_000_000)}`
+      })
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(data.card.status, 'Pending');
+    assert.match(data.card.qrToken, /^v1\./);
+  } finally {
+    await close(server);
+    for (const file of trackedFiles) {
+      restoreFile(file, snapshots[file]);
+    }
   }
 });
 

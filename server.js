@@ -88,8 +88,8 @@ function readBody(req) {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 8_000_000) {
-        reject(new Error('Request too large'));
+      if (body.length > 16_000_000) {
+        reject(new Error('Request too large. Compress the photo and try again.'));
         req.destroy();
       }
     });
