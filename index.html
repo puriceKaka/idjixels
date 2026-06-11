@@ -345,9 +345,21 @@
       padding: 6px;
     }
 
+    .qr-box::after {
+      content: "QR";
+      color: #8ca3be;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .qr-box.has-qr::after {
+      content: "";
+    }
+
     .qr-box img {
       width: 100%;
       height: 100%;
+      display: block;
     }
 
     .location-line {
@@ -782,11 +794,18 @@
       downloadBtn: document.getElementById('downloadBtn'),
       printBtn: document.getElementById('printBtn'),
       masterBtn: document.getElementById('masterBtn'),
+      qrBox: document.getElementById('qrBox'),
       qrImage: document.getElementById('qrImage')
     };
 
     function qrUrl(data) {
       return `/api/qr?size=220&data=${encodeURIComponent(data)}`;
+    }
+
+    function setQrImage(src, alt = 'Master QR code') {
+      els.qrImage.alt = alt;
+      els.qrImage.src = src || masterQrImage;
+      els.qrBox.classList.toggle('has-qr', Boolean(els.qrImage.src));
     }
 
     function masterQrSrc() {
@@ -843,11 +862,11 @@
       const isMasterCard = Boolean(record.isMaster);
       const qrToken = record.qrToken || record.verificationToken || '';
       if (!isMasterCard && record.id && qrToken) {
-        els.qrImage.src = qrUrl(verificationUrl(qrToken));
+        setQrImage(qrUrl(verificationUrl(qrToken)), 'Worker verification QR code');
       } else if (masterRegistrationUrl) {
-        els.qrImage.src = masterQrSrc();
+        setQrImage(masterQrSrc(), 'Master registration QR code');
       } else {
-        els.qrImage.removeAttribute('src');
+        setQrImage(masterQrImage, 'Master registration QR code');
       }
 
       if (record.photo) {
@@ -882,8 +901,7 @@
         phone: '+254713846393',
         photo: 'james-photo.jpeg'
       });
-      if (masterRegistrationUrl) els.qrImage.src = masterQrSrc();
-      else els.qrImage.removeAttribute('src');
+      setQrImage(masterQrSrc(), 'Master registration QR code');
     }
 
     function filteredRecords() {
@@ -1285,16 +1303,23 @@
     els.masterBtn.addEventListener('click', showMaster);
 
     async function loadMasterLink() {
-      const response = await fetch('/api/master-link');
-      const data = await response.json();
-      if (data.url) {
-        masterRegistrationUrl = data.url;
-        masterLinkReady = true;
-        if (!state.currentRecord || state.currentRecord.isMaster || !state.currentRecord.id) els.qrImage.src = masterQrSrc();
+      try {
+        const response = await fetch('/api/master-link');
+        const data = await response.json();
+        if (data.url) {
+          masterRegistrationUrl = data.url;
+          masterLinkReady = true;
+          if (!state.currentRecord || state.currentRecord.isMaster || !state.currentRecord.id) {
+            setQrImage(masterQrSrc(), 'Master registration QR code');
+          }
+        }
+      } catch (error) {
+        masterLinkReady = false;
+        setQrImage(masterQrImage, 'Fallback master QR code');
       }
     }
 
-    els.qrImage.removeAttribute('src');
+    setQrImage(masterQrImage, 'Fallback master QR code');
     els.adminPin.value = state.adminPin;
 
     if (claimToken) {
