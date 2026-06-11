@@ -499,7 +499,7 @@
         <p id="cardEmpty">Approve a worker or click View Card on an approved record to show the ID card here.</p>
         <div class="card-stage hidden" id="cardStage">
           <article class="id-card">
-            <img class="logo-front" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo">
+            <img class="logo-front" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo" loading="eager" decoding="async">
             <div class="front-shape"></div>
             <div class="photo-ring"><span id="cardPhotoPlaceholder">PHOTO</span><img id="cardPhoto" class="hidden" alt=""></div>
             <div class="front-info">
@@ -510,7 +510,7 @@
           </article>
 
           <article class="id-card">
-            <div class="qr-box"><img id="cardQr" crossorigin="anonymous" alt="Worker verification QR"></div>
+            <div class="qr-box"><img id="cardQr" crossorigin="anonymous" alt="Worker verification QR" loading="eager" decoding="async"></div>
             <div class="back-text">
               <div>If found please return to:</div>
               <div class="indent">Jixels Technologies Ltd</div>
@@ -524,7 +524,7 @@
                 <li>Report lost/stolen cards immediately to HR.</li>
               </ol>
             </div>
-            <img class="logo-back" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo">
+            <img class="logo-back" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo" loading="eager" decoding="async">
           </article>
         </div>
       </div>
@@ -1100,7 +1100,8 @@
         alert('Download library is not available. Please try again.');
         return;
       }
-      const canvas = await html2canvas(els.cardStage, { backgroundColor: '#eef2f6', scale: 2, useCORS: true });
+      await waitForCardMedia(els.cardStage);
+      const canvas = await html2canvas(els.cardStage, { backgroundColor: '#eef2f6', scale: 2, useCORS: true, imageTimeout: 10_000 });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = `${state.currentCard.id || 'jixels-id-card'}.png`;
@@ -1203,6 +1204,33 @@
       } catch {
         return readFileAsDataUrl(file);
       }
+    }
+
+    function waitForImage(image) {
+      return new Promise((resolve) => {
+        if (!image) {
+          resolve();
+          return;
+        }
+        if (image.complete && image.naturalWidth > 0) {
+          resolve();
+          return;
+        }
+        const done = () => {
+          image.removeEventListener('load', done);
+          image.removeEventListener('error', done);
+          resolve();
+        };
+        image.addEventListener('load', done, { once: true });
+        image.addEventListener('error', done, { once: true });
+      });
+    }
+
+    async function waitForCardMedia(container) {
+      if (!container) return;
+      const images = [...container.querySelectorAll('img')];
+      await Promise.all(images.map(waitForImage));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     }
 
     async function createManualCard() {

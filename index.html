@@ -683,7 +683,7 @@
       <div>
         <div class="cards-row">
           <article class="id-card" id="frontCard">
-            <img class="logo-front" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo">
+            <img class="logo-front" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo" loading="eager" decoding="async">
             <div class="front-shape"></div>
             <div class="photo-ring"><span id="photoPlaceholder">PHOTO</span><img id="cardPhoto" class="hidden" alt=""></div>
             <div class="front-info">
@@ -707,8 +707,8 @@
                 <li>Report lost/stolen cards immediately to HR.</li>
               </ul>
             </div>
-            <div class="qr-box" id="qrBox"><img id="qrImage" alt="Master QR code"></div>
-            <img class="logo-back" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo">
+            <div class="qr-box" id="qrBox"><img id="qrImage" alt="Master QR code" crossorigin="anonymous" loading="eager" decoding="async"></div>
+            <img class="logo-back" src="jixels-logo-form-ni-tenje-cropped.jpeg" alt="Jixels logo" loading="eager" decoding="async">
           </article>
         </div>
 
@@ -1012,6 +1012,33 @@
       }
     }
 
+    function waitForImage(image) {
+      return new Promise((resolve) => {
+        if (!image) {
+          resolve();
+          return;
+        }
+        if (image.complete && image.naturalWidth > 0) {
+          resolve();
+          return;
+        }
+        const done = () => {
+          image.removeEventListener('load', done);
+          image.removeEventListener('error', done);
+          resolve();
+        };
+        image.addEventListener('load', done, { once: true });
+        image.addEventListener('error', done, { once: true });
+      });
+    }
+
+    async function waitForCardMedia(container) {
+      if (!container) return;
+      const images = [...container.querySelectorAll('img')];
+      await Promise.all(images.map(waitForImage));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
     async function loadRecords() {
       state.records = [];
       renderRecords();
@@ -1097,7 +1124,9 @@
         return;
       }
       if (!confirmMasterQrReady()) return;
-      const canvas = await html2canvas(document.querySelector('.cards-row'), { backgroundColor: '#eef2f6', scale: 2, useCORS: true });
+      const cardsRow = document.querySelector('.cards-row');
+      await waitForCardMedia(cardsRow);
+      const canvas = await html2canvas(cardsRow, { backgroundColor: '#eef2f6', scale: 2, useCORS: true, imageTimeout: 10_000 });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = `${els.cardId.textContent.replace('ID No. ', '') || 'jixels-master-card'}.png`;
