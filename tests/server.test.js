@@ -148,6 +148,69 @@ test('pages use the Jixels logo as the favicon', () => {
   }
 });
 
+test('admin session tokens keep working after a server restart', async () => {
+  const trackedFiles = ['cards-db.json', 'audit-log.json', 'master-config.json'];
+  const snapshots = Object.fromEntries(trackedFiles.map((file) => [file, snapshotFile(file)]));
+  const serverA = createServer();
+  const baseUrlA = await listen(serverA);
+  let adminToken = '';
+  try {
+    const masterResponse = await fetch(`${baseUrlA}/api/master-link`);
+    const master = await masterResponse.json();
+    const masterUrl = new URL(master.url);
+    const masterToken = masterUrl.searchParams.get('master');
+    assert.ok(masterToken, 'Master token should be present in the master link URL.');
+
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const createResponse = await fetch(`${baseUrlA}/api/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        masterToken,
+        name: `Restart Test ${suffix}`,
+        location: 'Nairobi',
+        branch: 'HQ',
+        nationalId: `NID-RESTART-${suffix}`,
+        phone: `071${String(Date.now()).slice(-7)}`,
+        email: `restart-${suffix}@example.com`,
+        position: 'Staff',
+        photo: 'data:image/png;base64,AAA'
+      })
+    });
+    assert.equal(createResponse.status, 201);
+
+    const loginResponse = await fetch(`${baseUrlA}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: '1234' })
+    });
+    const login = await loginResponse.json();
+    assert.equal(loginResponse.status, 200);
+    adminToken = login.token;
+    assert.match(adminToken, /^v1\./);
+  } finally {
+    await close(serverA);
+  }
+
+  const serverB = createServer();
+  const baseUrlB = await listen(serverB);
+  try {
+    const response = await fetch(`${baseUrlB}/api/cards`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(body.cards));
+    assert.ok(body.cards.some((card) => card.name.startsWith('Restart Test ')));
+  } finally {
+    await close(serverB);
+    for (const file of trackedFiles) {
+      restoreFile(file, snapshots[file]);
+    }
+  }
+});
+
 test('backup rejects legacy GET requests', async () => {
   const server = createServer();
   const baseUrl = await listen(server);

@@ -37,6 +37,13 @@ function envValue(...names) {
   }
   return '';
 }
+
+function deriveSecret(source, label) {
+  const value = String(source || '').trim();
+  if (!value) return '';
+  return crypto.createHash('sha256').update(`${value}:${label}`).digest('hex');
+}
+
 function normalizeSupabaseUrl(value) {
   const raw = String(value || '').trim().replace(/^["']|["']$/g, '').replace(/\/+$/, '');
   if (!raw) return '';
@@ -592,11 +599,13 @@ function sendWorkerApprovalEmail(req, card) {
 
 function loadMasterConfig() {
   if (masterToken) return { token: masterToken };
-  if (!allowLocalStorage) {
-    throw new Error('MASTER_TOKEN is required when local storage is disabled.');
-  }
   if (fs.existsSync(masterConfigPath)) {
     try { return JSON.parse(fs.readFileSync(masterConfigPath, 'utf8')); } catch {}
+  }
+  if (!allowLocalStorage) {
+    const derived = deriveSecret(supabaseServiceRoleKey, 'master-token');
+    if (derived) return { token: derived };
+    throw new Error('MASTER_TOKEN or SUPABASE_SERVICE_ROLE_KEY is required when local storage is disabled.');
   }
   const config = { token: crypto.randomBytes(24).toString('hex') };
   fs.writeFileSync(masterConfigPath, JSON.stringify(config, null, 2));
@@ -675,10 +684,7 @@ function base64UrlDecode(value) {
 function qrSigningSecret() {
   const configured = String(process.env.QR_SIGNING_SECRET || '').trim();
   if (configured) return configured;
-  if (!allowLocalStorage) {
-    throw new Error('QR_SIGNING_SECRET is required when local storage is disabled.');
-  }
-  return loadMasterConfig().token;
+  return deriveSecret(loadMasterConfig().token, 'qr-signing');
 }
 
 function signQrPayload(card) {
@@ -697,7 +703,11 @@ function signQrPayload(card) {
 
 function withQrToken(card) {
   if (!card) return card;
-  return { ...card, qrToken: signQrPayload(card) };
+  try {
+    return { ...card, qrToken: signQrPayload(card) };
+  } catch {
+    return { ...card, qrToken: card.verificationToken || '' };
+  }
 }
 
 function readQrPayload(value) {
@@ -936,6 +946,56 @@ async function recordAttendanceScan(card, action, payload = {}) {
   throw new Error('Choose Sign In or Sign Out.');
 }
 
+function adminSessionSecret() {
+  const configured = envValue('ADMIN_SESSION_SECRET', 'ADMIN_AUTH_SECRET');
+  if (configured) return configured;
+  return deriveSecret(loadMasterConfig().token, 'admin-session');
+}
+
+function signAdminSession(session) {
+  const payload = base64UrlEncode(JSON.stringify({
+    username: session.username,
+    role: session.role,
+    branch: session.branch || '',
+    expiresAt: session.expiresAt,
+    issuedAt: Date.now()
+  }));
+  const signature = crypto
+    .createHmac('sha256', adminSessionSecret())
+    .update(payload)
+    .digest('base64url');
+  return `v1.${payload}.${signature}`;
+}
+
+function readAdminSession(token) {
+  const text = String(token || '').trim();
+  if (!text) return null;
+  const parts = text.split('.');
+  if (parts.length !== 3 || parts[0] !== 'v1') return null;
+  const [, payload, signature] = parts;
+  const expected = crypto
+    .createHmac('sha256', adminSessionSecret())
+    .update(payload)
+    .digest('base64url');
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    return null;
+  }
+  try {
+    const data = JSON.parse(base64UrlDecode(payload));
+    if (!data.username || !data.expiresAt || Date.now() > Number(data.expiresAt)) return null;
+    return {
+      username: String(data.username),
+      role: String(data.role || 'super-admin'),
+      branch: String(data.branch || ''),
+      expiresAt: Number(data.expiresAt)
+    };
+  } catch {
+    return null;
+  }
+}
+
 function currentAdmin(req) {
   const auth = String(req.headers.authorization || '');
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
@@ -944,7 +1004,7 @@ function currentAdmin(req) {
     if (Date.now() < session.expiresAt) return session;
     sessions.delete(token);
   }
-  return null;
+  return readAdminSession(token);
 }
 
 function isAdmin(req) {
@@ -1064,15 +1124,15 @@ async function handleApi(req, res, url) {
         sendJson(res, 401, { error: 'Invalid username or password.' });
         return true;
       }
-      const token = crypto.randomBytes(24).toString('hex');
       const session = {
         username: config.username,
         role: config.role || 'super-admin',
         branch: config.branch || '',
         expiresAt: Date.now() + 8 * 60 * 60 * 1000
       };
-      sessions.set(token, session);
-      sendJson(res, 200, { token, username: session.username, role: session.role, branch: session.branch, expiresAt: session.expiresAt });
+      const signedToken = signAdminSession(session);
+      sessions.set(signedToken, session);
+      sendJson(res, 200, { token: signedToken, username: session.username, role: session.role, branch: session.branch, expiresAt: session.expiresAt });
     } catch (error) {
       sendJson(res, 400, { error: error.message || 'Invalid request.' });
     }
