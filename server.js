@@ -43,7 +43,15 @@ const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '
 const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
 const resetFromEmail = String(process.env.RESET_FROM_EMAIL || 'Jixels ID Cards <onboarding@resend.dev>').trim();
 const useSupabase = Boolean(supabaseUrl && supabaseServiceRoleKey);
+const allowLocalStorage = process.env.NODE_ENV === 'test' || process.env.ALLOW_LOCAL_STORAGE === 'true';
+
+function requireLocalStorageFallback() {
+  if (allowLocalStorage) return;
+  throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel.');
+}
+
 function resolveLocalDataRoot() {
+  if (!allowLocalStorage) return null;
   try {
     fs.accessSync(root, fs.constants.W_OK);
     return root;
@@ -55,13 +63,13 @@ function resolveLocalDataRoot() {
 }
 
 const localDataRoot = resolveLocalDataRoot();
-const dbPath = path.join(localDataRoot, 'cards-db.json');
-const auditPath = path.join(localDataRoot, 'audit-log.json');
-const attendancePath = path.join(localDataRoot, 'attendance-log.json');
-const scannerDevicesPath = path.join(localDataRoot, 'scanner-devices.json'); // Still used for local fallback
-const adminConfigPath = path.join(localDataRoot, 'admin-config.json'); // Still used for local fallback
-const masterConfigPath = path.join(localDataRoot, 'master-config.json'); // Still used for local fallback
-const storageMode = useSupabase ? 'supabase' : (localDataRoot === root ? 'local-json' : 'vercel-tmp');
+const dbPath = localDataRoot ? path.join(localDataRoot, 'cards-db.json') : '';
+const auditPath = localDataRoot ? path.join(localDataRoot, 'audit-log.json') : '';
+const attendancePath = localDataRoot ? path.join(localDataRoot, 'attendance-log.json') : '';
+const scannerDevicesPath = localDataRoot ? path.join(localDataRoot, 'scanner-devices.json') : ''; // Still used for local fallback
+const adminConfigPath = localDataRoot ? path.join(localDataRoot, 'admin-config.json') : ''; // Still used for local fallback
+const masterConfigPath = localDataRoot ? path.join(localDataRoot, 'master-config.json') : ''; // Still used for local fallback
+const storageMode = useSupabase ? 'supabase' : (allowLocalStorage ? 'local-json' : 'supabase-required');
 const sessions = new Map();
 const rateBuckets = new Map();
 const resetCodes = new Map();
@@ -355,13 +363,17 @@ function supabaseRequest(method, table, query = '', body) {
 }
 
 async function loadCards() {
-  if (!useSupabase) return localLoadCards();
+  if (!useSupabase) {
+    requireLocalStorageFallback();
+    return localLoadCards();
+  }
   const rows = await supabaseRequest('GET', 'cards', '?select=*&order=created_at.asc');
   return rows.map(fromSupabaseCard);
 }
 
 async function saveCards(cards) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     localSaveCards(cards);
     return;
   }
@@ -371,6 +383,7 @@ async function saveCards(cards) {
 
 async function updateSingleCard(card, cards) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     if (cards) localSaveCards(cards);
     return;
   }
@@ -379,6 +392,7 @@ async function updateSingleCard(card, cards) {
 
 async function insertSingleCard(card) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     const cards = await loadCards();
     cards.push(card);
     localSaveCards(cards);
@@ -388,13 +402,17 @@ async function insertSingleCard(card) {
 }
 
 async function loadAudit() {
-  if (!useSupabase) return localLoadAudit();
+  if (!useSupabase) {
+    requireLocalStorageFallback();
+    return localLoadAudit();
+  }
   const rows = await supabaseRequest('GET', 'audit_log', '?select=*&order=created_at.desc');
   return rows.map(fromSupabaseAudit);
 }
 
 async function saveAudit(log) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     localSaveAudit(log);
     return;
   }
@@ -403,13 +421,17 @@ async function saveAudit(log) {
 }
 
 async function loadAttendance() {
-  if (!useSupabase) return localLoadAttendance();
+  if (!useSupabase) {
+    requireLocalStorageFallback();
+    return localLoadAttendance();
+  }
   const rows = await supabaseRequest('GET', 'attendance_records', '?select=*&order=created_at.desc');
   return rows.map(fromSupabaseAttendance);
 }
 
 async function saveAttendance(log) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     localSaveAttendance(log);
     return;
   }
@@ -418,13 +440,17 @@ async function saveAttendance(log) {
 }
 
 async function loadScannerDevices() {
-  if (!useSupabase) return localLoadScannerDevices();
+  if (!useSupabase) {
+    requireLocalStorageFallback();
+    return localLoadScannerDevices();
+  }
   const rows = await supabaseRequest('GET', 'scanner_devices', '?select=*&order=created_at.desc');
   return rows.map(fromSupabaseScannerDevice);
 }
 
 async function saveScannerDevices(devices) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     localSaveScannerDevices(devices);
     return;
   }
@@ -438,6 +464,7 @@ function hashPassword(password, salt) {
 
 async function loadAdminConfig() {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     if (fs.existsSync(adminConfigPath)) {
       try { return JSON.parse(fs.readFileSync(adminConfigPath, 'utf8')); } catch {}
     }
@@ -469,6 +496,7 @@ async function loadAdminConfig() {
 
 async function saveAdminConfig(config) {
   if (!useSupabase) {
+    requireLocalStorageFallback();
     fs.writeFileSync(adminConfigPath, JSON.stringify(config, null, 2));
     return;
   }
@@ -545,6 +573,9 @@ function sendWorkerApprovalEmail(req, card) {
 
 function loadMasterConfig() {
   if (masterToken) return { token: masterToken };
+  if (!allowLocalStorage) {
+    throw new Error('MASTER_TOKEN is required when local storage is disabled.');
+  }
   if (fs.existsSync(masterConfigPath)) {
     try { return JSON.parse(fs.readFileSync(masterConfigPath, 'utf8')); } catch {}
   }
@@ -623,7 +654,12 @@ function base64UrlDecode(value) {
 }
 
 function qrSigningSecret() {
-  return String(process.env.QR_SIGNING_SECRET || loadMasterConfig().token);
+  const configured = String(process.env.QR_SIGNING_SECRET || '').trim();
+  if (configured) return configured;
+  if (!allowLocalStorage) {
+    throw new Error('QR_SIGNING_SECRET is required when local storage is disabled.');
+  }
+  return loadMasterConfig().token;
 }
 
 function signQrPayload(card) {
@@ -944,52 +980,53 @@ function publicCard(card) {
 }
 
 async function handleApi(req, res, url) {
-  if (url.pathname.startsWith('/api/') && !checkRate(req, url.pathname, 120, 60_000)) {
-    sendJson(res, 429, { error: 'Too many requests. Please slow down.' });
-    return true;
-  }
-
-  if (url.pathname === '/api/health' && req.method === 'GET') {
-    sendJson(res, 200, {
-      ok: true,
-      storage: storageMode,
-      supabaseUrlOk: !supabaseUrl || /^https?:\/\/[^/]+\.supabase\.co/i.test(supabaseUrl)
-    });
-    return true;
-  }
-
-  if (url.pathname === '/api/master-link' && req.method === 'GET') {
-    const masterUrl = new URL('/', appBaseUrl(req));
-    masterUrl.searchParams.set('master', loadMasterConfig().token);
-    masterUrl.hash = 'apply';
-    sendJson(res, 200, { url: masterUrl.href });
-    return true;
-  }
-
-  if (url.pathname === '/api/qr' && req.method === 'GET') {
-    try {
-      const data = String(url.searchParams.get('data') || '');
-      if (!data) {
-        sendJson(res, 400, { error: 'QR data is required.' });
-        return true;
-      }
-      if (data.length > 2048) {
-        sendJson(res, 400, { error: 'QR data is too long.' });
-        return true;
-      }
-      const svg = await QRCode.toString(data, {
-        type: 'svg',
-        margin: Number(url.searchParams.get('margin') || 0),
-        width: Number(url.searchParams.get('size') || 240),
-        errorCorrectionLevel: 'M'
-      });
-      res.writeHead(200, securityHeaders({ 'Content-Type': 'image/svg+xml; charset=utf-8' }));
-      res.end(svg);
-    } catch (error) {
-      sendJson(res, 400, { error: error.message || 'Unable to generate QR.' });
+  try {
+    if (url.pathname.startsWith('/api/') && !checkRate(req, url.pathname, 120, 60_000)) {
+      sendJson(res, 429, { error: 'Too many requests. Please slow down.' });
+      return true;
     }
-    return true;
-  }
+
+    if (url.pathname === '/api/health' && req.method === 'GET') {
+      sendJson(res, 200, {
+        ok: true,
+        storage: storageMode,
+        supabaseUrlOk: !supabaseUrl || /^https?:\/\/[^/]+\.supabase\.co/i.test(supabaseUrl)
+      });
+      return true;
+    }
+
+    if (url.pathname === '/api/master-link' && req.method === 'GET') {
+      const masterUrl = new URL('/', appBaseUrl(req));
+      masterUrl.searchParams.set('master', loadMasterConfig().token);
+      masterUrl.hash = 'apply';
+      sendJson(res, 200, { url: masterUrl.href });
+      return true;
+    }
+
+    if (url.pathname === '/api/qr' && req.method === 'GET') {
+      try {
+        const data = String(url.searchParams.get('data') || '');
+        if (!data) {
+          sendJson(res, 400, { error: 'QR data is required.' });
+          return true;
+        }
+        if (data.length > 2048) {
+          sendJson(res, 400, { error: 'QR data is too long.' });
+          return true;
+        }
+        const svg = await QRCode.toString(data, {
+          type: 'svg',
+          margin: Number(url.searchParams.get('margin') || 0),
+          width: Number(url.searchParams.get('size') || 240),
+          errorCorrectionLevel: 'M'
+        });
+        res.writeHead(200, securityHeaders({ 'Content-Type': 'image/svg+xml; charset=utf-8' }));
+        res.end(svg);
+      } catch (error) {
+        sendJson(res, 400, { error: error.message || 'Unable to generate QR.' });
+      }
+      return true;
+    }
 
   if (url.pathname === '/api/login' && req.method === 'POST') {
     if (!checkRate(req, 'login', 8, 15 * 60_000)) {
@@ -1666,29 +1703,33 @@ async function handleApi(req, res, url) {
     return true;
   }
 
-  if (url.pathname.startsWith('/api/cards/') && req.method === 'DELETE') {
-    if (!isAdmin(req)) {
-      sendJson(res, 401, { error: loginRequiredMessage });
+    if (url.pathname.startsWith('/api/cards/') && req.method === 'DELETE') {
+      if (!isAdmin(req)) {
+        sendJson(res, 401, { error: loginRequiredMessage });
+        return true;
+      }
+      const id = decodeURIComponent(url.pathname.replace('/api/cards/', ''));
+      const cards = await loadCards();
+      const card = cards.find((item) => item.id === id);
+      if (!card) {
+        sendJson(res, 404, { error: 'Card not found.' });
+        return true;
+      }
+      card.status = 'Inactive';
+      card.inactiveReason = 'Marked inactive instead of deleted.';
+      card.verificationToken = createVerificationToken();
+      card.updatedAt = new Date().toISOString();
+      await updateSingleCard(card, cards);
+      await appendAudit('inactive-via-delete-request', card, currentAdmin(req)?.username || 'admin');
+      sendJson(res, 200, { ok: true, card: withQrToken(card), message: 'Card marked inactive instead of deleted.' });
       return true;
     }
-    const id = decodeURIComponent(url.pathname.replace('/api/cards/', ''));
-    const cards = await loadCards();
-    const card = cards.find((item) => item.id === id);
-    if (!card) {
-      sendJson(res, 404, { error: 'Card not found.' });
-      return true;
-    }
-    card.status = 'Inactive';
-    card.inactiveReason = 'Marked inactive instead of deleted.';
-    card.verificationToken = createVerificationToken();
-    card.updatedAt = new Date().toISOString();
-    await updateSingleCard(card, cards);
-    await appendAudit('inactive-via-delete-request', card, currentAdmin(req)?.username || 'admin');
-    sendJson(res, 200, { ok: true, card: withQrToken(card), message: 'Card marked inactive instead of deleted.' });
+
+    return false;
+  } catch (error) {
+    if (!res.headersSent) sendJson(res, 500, { error: error.message || 'Internal server error.' });
     return true;
   }
-
-  return false;
 }
 
 const app = async (req, res) => {

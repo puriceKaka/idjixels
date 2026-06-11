@@ -4,6 +4,8 @@ const path = require('node:path');
 const { test } = require('node:test');
 
 process.env.QR_SIGNING_SECRET = 'test-signing-secret';
+process.env.NODE_ENV = 'test';
+process.env.ALLOW_LOCAL_STORAGE = 'true';
 
 const {
   createServer,
@@ -133,6 +135,13 @@ test('master link keeps the master card visible before the form', () => {
     /\.registration-only \.topbar,\s*\.registration-only \.cards-row,\s*\.registration-only \.records/
   );
   assert.match(html, /else if \(hasMasterAccess\) \{[\s\S]*showMaster\(\);/);
+});
+
+test('pages use the Jixels logo as the favicon', () => {
+  for (const file of ['index.html', 'admin.html', 'scanner.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    assert.match(html, /rel="icon"[^>]+jixels-logo-form-ni-tenje-cropped\.jpeg/);
+  }
 });
 
 test('backup rejects legacy GET requests', async () => {
