@@ -554,6 +554,7 @@
   </script>
   <style>
     .registration-only .topbar,
+    .registration-only .cards-row,
     .registration-only .records {
       display: none !important;
     }
@@ -1380,10 +1381,10 @@
       document.querySelector('.cards-row').classList.add('hidden');
     } else if (hasMasterAccess) {
       els.topbar.classList.add('hidden');
+      document.querySelector('.cards-row').classList.add('hidden');
       els.status.classList.add('hidden');
       els.publicStatus.classList.remove('hidden');
       els.saveBtn.textContent = 'Save And Generate Card';
-      showMaster();
     } else {
       els.topbar.classList.add('hidden');
       els.form.classList.add('hidden');

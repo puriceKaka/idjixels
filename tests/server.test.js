@@ -127,14 +127,18 @@ test('public pages and master link are served for deployment routes', async () =
   }
 });
 
-test('master link keeps the master card visible before the form', () => {
+test('master link opens the registration form without showing the master card', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const start = html.indexOf('} else if (hasMasterAccess) {');
+  const end = html.indexOf('    } else {', start + 1);
+  const masterBranch = start >= 0 && end > start ? html.slice(start, end) : '';
 
-  assert.doesNotMatch(
+  assert.match(
     html,
     /\.registration-only \.topbar,\s*\.registration-only \.cards-row,\s*\.registration-only \.records/
   );
-  assert.match(html, /else if \(hasMasterAccess\) \{[\s\S]*showMaster\(\);/);
+  assert.ok(masterBranch, 'Expected to find the master-access branch.');
+  assert.doesNotMatch(masterBranch, /showMaster\(\);/);
 });
 
 test('pages use the Jixels logo as the favicon', () => {
