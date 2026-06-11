@@ -1322,6 +1322,8 @@
     setQrImage(masterQrImage, 'Fallback master QR code');
     els.adminPin.value = state.adminPin;
 
+    const verificationToken = new URLSearchParams(window.location.search).get('token') || '';
+
     if (claimToken) {
       els.topbar.classList.add('hidden');
       els.form.classList.add('hidden');
@@ -1338,13 +1340,14 @@
       [...els.form.querySelectorAll('label, button, img.photo-preview')].forEach((item) => item.classList.add('hidden'));
       els.scanNotice.classList.remove('hidden');
       els.openFormLink.classList.add('hidden');
+      if (!verificationToken) showMaster();
     }
 
     loadMasterLink();
     loadClaimFromUrl().then((claimed) => {
       if (claimed) return;
       loadVerificationFromUrl().then((loaded) => {
-        if (!loaded && !hasMasterAccess) showMaster();
+        if (!loaded && !hasMasterAccess && !state.currentRecord) showMaster();
       });
     });
   </script>
