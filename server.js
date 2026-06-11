@@ -2,6 +2,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
 
@@ -24,12 +25,6 @@ function loadDotEnv() {
 loadDotEnv();
 
 const port = Number(process.env.PORT || 8080);
-const dbPath = path.join(root, 'cards-db.json');
-const auditPath = path.join(root, 'audit-log.json');
-const attendancePath = path.join(root, 'attendance-log.json');
-const scannerDevicesPath = path.join(root, 'scanner-devices.json'); // Still used for local fallback
-const adminConfigPath = path.join(root, 'admin-config.json'); // Still used for local fallback
-const masterConfigPath = path.join(root, 'master-config.json'); // Still used for local fallback
 const defaultAdminUser = process.env.ADMIN_USER || 'admin'; // Used for initial Supabase setup or local fallback
 const defaultAdminPass = process.env.ADMIN_PASS || '1234'; // Used for initial Supabase setup or local fallback
 const defaultAdminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase(); // Used for initial Supabase setup or local fallback
@@ -48,6 +43,25 @@ const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '
 const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
 const resetFromEmail = String(process.env.RESET_FROM_EMAIL || 'Jixels ID Cards <onboarding@resend.dev>').trim();
 const useSupabase = Boolean(supabaseUrl && supabaseServiceRoleKey);
+function resolveLocalDataRoot() {
+  try {
+    fs.accessSync(root, fs.constants.W_OK);
+    return root;
+  } catch {
+    const writableRoot = path.join(os.tmpdir(), 'jixels-id-cards');
+    fs.mkdirSync(writableRoot, { recursive: true });
+    return writableRoot;
+  }
+}
+
+const localDataRoot = resolveLocalDataRoot();
+const dbPath = path.join(localDataRoot, 'cards-db.json');
+const auditPath = path.join(localDataRoot, 'audit-log.json');
+const attendancePath = path.join(localDataRoot, 'attendance-log.json');
+const scannerDevicesPath = path.join(localDataRoot, 'scanner-devices.json'); // Still used for local fallback
+const adminConfigPath = path.join(localDataRoot, 'admin-config.json'); // Still used for local fallback
+const masterConfigPath = path.join(localDataRoot, 'master-config.json'); // Still used for local fallback
+const storageMode = useSupabase ? 'supabase' : (localDataRoot === root ? 'local-json' : 'vercel-tmp');
 const sessions = new Map();
 const rateBuckets = new Map();
 const resetCodes = new Map();
@@ -938,7 +952,7 @@ async function handleApi(req, res, url) {
   if (url.pathname === '/api/health' && req.method === 'GET') {
     sendJson(res, 200, {
       ok: true,
-      storage: useSupabase ? 'supabase' : 'local-json',
+      storage: storageMode,
       supabaseUrlOk: !supabaseUrl || /^https?:\/\/[^/]+\.supabase\.co/i.test(supabaseUrl)
     });
     return true;
