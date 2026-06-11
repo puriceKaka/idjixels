@@ -30,6 +30,13 @@ const defaultAdminPass = process.env.ADMIN_PASS || '1234'; // Used for initial S
 const defaultAdminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase(); // Used for initial Supabase setup or local fallback
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const masterToken = String(process.env.MASTER_TOKEN || '').trim();
+function envValue(...names) {
+  for (const name of names.flat()) {
+    const value = String(process.env[name] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
 function normalizeSupabaseUrl(value) {
   const raw = String(value || '').trim().replace(/^["']|["']$/g, '').replace(/\/+$/, '');
   if (!raw) return '';
@@ -38,8 +45,17 @@ function normalizeSupabaseUrl(value) {
   return `https://${raw}`;
 }
 
-const supabaseUrl = normalizeSupabaseUrl(process.env.SUPABASE_URL);
-const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const supabaseUrl = normalizeSupabaseUrl(envValue(
+  'SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'SUPABASE_PROJECT_URL'
+));
+const supabaseServiceRoleKey = envValue(
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'SUPABASE_SERVICE_KEY',
+  'SUPABASE_ROLE_KEY',
+  'SUPABASE_SERVICE_ROLE'
+);
 const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
 const resetFromEmail = String(process.env.RESET_FROM_EMAIL || 'Jixels ID Cards <onboarding@resend.dev>').trim();
 const useSupabase = Boolean(supabaseUrl && supabaseServiceRoleKey);
@@ -47,7 +63,10 @@ const allowLocalStorage = process.env.NODE_ENV === 'test' || process.env.ALLOW_L
 
 function requireLocalStorageFallback() {
   if (allowLocalStorage) return;
-  throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel.');
+  throw new Error(
+    'Supabase is not configured at runtime. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL / SUPABASE_PROJECT_URL) and ' +
+    'SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY / SUPABASE_ROLE_KEY / SUPABASE_SERVICE_ROLE) in Vercel, then redeploy.'
+  );
 }
 
 function resolveLocalDataRoot() {
@@ -987,11 +1006,14 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/health' && req.method === 'GET') {
-      sendJson(res, 200, {
-        ok: true,
-        storage: storageMode,
-        supabaseUrlOk: !supabaseUrl || /^https?:\/\/[^/]+\.supabase\.co/i.test(supabaseUrl)
-      });
+    sendJson(res, 200, {
+      ok: true,
+      storage: storageMode,
+      supabaseConfigured: useSupabase,
+      supabaseUrlSet: Boolean(supabaseUrl),
+      supabaseServiceRoleKeySet: Boolean(supabaseServiceRoleKey),
+      supabaseUrlOk: !supabaseUrl || /^https?:\/\/[^/]+\.supabase\.co/i.test(supabaseUrl)
+    });
       return true;
     }
 
